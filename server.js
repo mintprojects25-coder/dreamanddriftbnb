@@ -13,12 +13,14 @@ const PORT = process.env.PORT || 3000;
 // ── Middleware ─────────────────────────────────────────────────────────────
 app.use(express.json());
 app.use((req, res, next) => {
-  const allowed = process.env.FRONTEND_URL || '*';
-  res.setHeader('Access-Control-Allow-Origin', allowed === '*' ? '*' : allowed);
-  res.setHeader('Vary', 'Origin');
+  // Allow all origins — Netlify frontend needs to reach this Railway API
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  res.setHeader('Access-Control-Allow-Credentials', 'false');
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
   next();
 });
 
