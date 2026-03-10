@@ -251,20 +251,25 @@ app.put('/api/settings', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Pricing (protected PUT)
+// Pricing (protected PUT) - upsert each rate type
 app.put('/api/pricing', auth, async (req, res) => {
   const { weeknight, weekend, longstay, holiday } = req.body;
   try {
-    if (weeknight !== undefined) await pool.query(`UPDATE pricing SET amount=$1 WHERE rate_type='base'`, [parseFloat(weeknight)]);
-    if (weekend !== undefined)   await pool.query(`UPDATE pricing SET amount=$1 WHERE rate_type='weekend'`, [parseFloat(weekend)]);
-    if (longstay !== undefined)  await pool.query(`UPDATE pricing SET amount=$1 WHERE rate_type='longstay'`, [parseFloat(longstay)]);
-    if (holiday !== undefined) {
+    const upsert = async (rate_type, rate_name, amount) => {
       await pool.query(
-        `INSERT INTO pricing (rate_name,rate_type,amount) VALUES ('Public Holiday','public_holiday',$1) ON CONFLICT DO NOTHING`,
-        [parseFloat(holiday)]
-      );
-      await pool.query(`UPDATE pricing SET amount=$1 WHERE rate_type='public_holiday'`, [parseFloat(holiday)]);
-    }
+        `INSERT INTO pricing (rate_name, rate_type, amount, active)
+         VALUES ($1, $2, $3, true)
+         ON CONFLICT (rate_type) DO UPDATE SET amount=$3, active=true`,
+        [rate_name, rate_type, parseFloat(amount)]
+      ).catch(async () => {
+        // If ON CONFLICT on rate_type fails (no unique constraint), use UPDATE
+        await pool.query(`UPDATE pricing SET amount=$1 WHERE rate_type=$2`, [parseFloat(amount), rate_type]);
+      });
+    };
+    if (weeknight !== undefined) await upsert('base',         'Weeknight Rate (Mon-Thu)', weeknight);
+    if (weekend   !== undefined) await upsert('weekend',      'Weekend Rate (Fri-Sat)',   weekend);
+    if (longstay  !== undefined) await upsert('longstay',     'Long Stay (7+ nights)',    longstay);
+    if (holiday   !== undefined) await upsert('public_holiday','Public Holiday Rate',     holiday);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
