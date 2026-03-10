@@ -13,7 +13,9 @@ const PORT = process.env.PORT || 3000;
 // ── Middleware ─────────────────────────────────────────────────────────────
 app.use(express.json());
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL || '*');
+  const allowed = process.env.FRONTEND_URL || '*';
+  res.setHeader('Access-Control-Allow-Origin', allowed === '*' ? '*' : allowed);
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -61,6 +63,9 @@ function auth(req, res, next) {
 }
 
 // ── PUBLIC ROUTES ──────────────────────────────────────────────────────────
+
+// Root route (Railway health check)
+app.get('/', (req, res) => res.json({ service: 'Dream & Drift API', status: 'running' }));
 
 // Health check
 app.get('/api/health', async (req, res) => {
