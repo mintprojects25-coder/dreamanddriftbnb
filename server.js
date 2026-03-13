@@ -165,6 +165,16 @@ app.get('/api/availability', async (req, res) => {
 
 // ── PROTECTED ROUTES ───────────────────────────────────────────────────────
 
+// Public availability — no personal data
+app.get('/api/bookings/public', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, checkin, checkout, status FROM bookings WHERE status != 'cancelled' ORDER BY checkin`
+    );
+    res.json(result.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Bookings
 app.get('/api/bookings', auth, async (req, res) => {
   try {
@@ -344,7 +354,7 @@ app.get('/api/reports', auth, async (req, res) => {
 });
 
 // iCal export
-app.get('/api/calendar/export', auth, async (req, res) => {
+app.get('/api/calendar/export', async (req, res) => {
   try {
     const result = await pool.query(`SELECT * FROM bookings WHERE status != 'cancelled' ORDER BY checkin`);
     let lines = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Dream & Drift//EN','CALSCALE:GREGORIAN','METHOD:PUBLISH'];
@@ -359,6 +369,49 @@ app.get('/api/calendar/export', auth, async (req, res) => {
     res.setHeader('Content-Type','text/calendar');
     res.setHeader('Content-Disposition','attachment; filename="dreamdrift.ics"');
     res.send(lines.join('\r\n'));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// iCal Import — fetch external calendar and block dates
+app.post('/api/ical/import', auth, async (req, res) => {
+  const { url, platform } = req.body;
+  if (!url) return res.status(400).json({ error: 'URL required' });
+  try {
+    const https = require('https');
+    const http = require('http');
+    const client = url.startsWith('https') ? https : http;
+    const icalData = await new Promise((resolve, reject) => {
+      client.get(url, (r) => {
+        let d = '';
+        r.on('data', c => d += c);
+        r.on('end', () => resolve(d));
+        r.on('error', reject);
+      }).on('error', reject);
+    });
+    // Parse VEVENT blocks
+    const events = [];
+    const vevents = icalData.match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/g) || [];
+    for (const ve of vevents) {
+      const dtstart = ve.match(/DTSTART[^:]*:([\d]{8})/)?.[1];
+      const dtend   = ve.match(/DTEND[^:]*:([\d]{8})/)?.[1];
+      if (dtstart && dtend) {
+        const from = dtstart.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3');
+        const to   = dtend.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3');
+        await pool.query(
+          `INSERT INTO blocked_dates (from_date, to_date, reason) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+          [from, to, platform + ' sync']
+        ).catch(() => pool.query(
+          `INSERT INTO blocked_dates (from_date, to_date, reason) VALUES ($1, $2, $3)`,
+          [from, to, platform + ' sync']
+        ));
+        events.push({ from, to });
+      }
+    }
+    await pool.query(
+      `INSERT INTO ical_sync_log (platform, url, events_imported) VALUES ($1, $2, $3)`,
+      [platform || 'External', url, events.length]
+    ).catch(() => {});
+    res.json({ success: true, blocked: events.length, events });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
