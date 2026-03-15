@@ -57,11 +57,23 @@ function verifyToken(token) {
 }
 
 function auth(req, res, next) {
-  const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
+  // Support both Authorization header (normal API) and ?token= query (EventSource/SSE)
+  const headerToken = (req.headers.authorization || '').replace('Bearer ', '').trim();
+  const queryToken  = (req.query.token || '').trim();
+  const token = headerToken || queryToken;
   const user = verifyToken(token);
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
   req.user = user;
   next();
+}
+
+// ── SSE — Live admin notifications ────────────────────────────────────────
+const sseClients = new Set();
+function broadcastSSE(eventName, data) {
+  const payload = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of sseClients) {
+    try { client.write(payload); } catch (_) { sseClients.delete(client); }
+  }
 }
 
 // ── PUBLIC ROUTES ──────────────────────────────────────────────────────────
@@ -115,14 +127,36 @@ app.get('/api/pricing', async (req, res) => {
 
 // Submit enquiry (public — from contact form)
 app.post('/api/enquiry', async (req, res) => {
-  const { name, email, phone, checkin, checkout, guests, message } = req.body;
+  const { name, email, phone, checkin, checkout, guests, message,
+          room_type, payment, purpose, source } = req.body;
   if (!name || !email) return res.status(400).json({ error: 'Name and email required' });
   try {
     const result = await pool.query(
-      `INSERT INTO enquiries (name,email,phone,checkin,checkout,guests,message)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-      [name, email, phone||null, checkin||null, checkout||null, guests||2, message||'']
+      `INSERT INTO enquiries (name,email,phone,checkin,checkout,guests,message,room_type,payment,purpose,source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      [name, email, phone||null, checkin||null, checkout||null, guests||2,
+       message||'', room_type||null, payment||null, purpose||null, source||null]
     );
+    const newEnquiry = result.rows[0];
+
+    // ── Broadcast live notification to all connected admin sessions
+    broadcastSSE('new_enquiry', {
+      id:       newEnquiry.id,
+      name:     name,
+      email:    email,
+      phone:    phone || null,
+      checkin:  checkin || null,
+      checkout: checkout || null,
+      guests:   guests || 2,
+      message:  message || '',
+      room_type: room_type || null,
+      payment:  payment || null,
+      purpose:  purpose || null,
+      source:   source || null,
+      received: new Date().toISOString(),
+      status:   'new',
+    });
+
     // Email via Resend (optional)
     if (process.env.RESEND_API_KEY) {
       try {
@@ -131,7 +165,7 @@ app.post('/api/enquiry', async (req, res) => {
           headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             from: 'Dream & Drift <notifications@driftanddream.co.za>',
-            to: ['info@driftanddream.co.za'],
+            to: ['Edithmakwena056@gmail.com'],
             subject: `New Enquiry from ${name}`,
             html: `<h2>New Enquiry — Dream &amp; Drift</h2>
               <p><b>Name:</b> ${name}</p><p><b>Email:</b> ${email}</p>
@@ -142,7 +176,7 @@ app.post('/api/enquiry', async (req, res) => {
         });
       } catch (emailErr) { console.warn('Email failed:', emailErr.message); }
     }
-    res.json({ success: true, id: result.rows[0].id });
+    res.json({ success: true, id: newEnquiry.id });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -413,6 +447,24 @@ app.post('/api/ical/import', auth, async (req, res) => {
     ).catch(() => {});
     res.json({ success: true, blocked: events.length, events });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── SSE endpoint — admin connects here once after login
+app.get('/api/events', auth, (req, res) => {
+  res.setHeader('Content-Type',  'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection',    'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  res.write(`event: connected\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`);
+  sseClients.add(res);
+
+  const heartbeat = setInterval(() => {
+    try { res.write(': heartbeat\n\n'); } catch (_) { clearInterval(heartbeat); }
+  }, 25000);
+
+  req.on('close', () => { clearInterval(heartbeat); sseClients.delete(res); });
 });
 
 // ── Start Server ───────────────────────────────────────────────────────────
