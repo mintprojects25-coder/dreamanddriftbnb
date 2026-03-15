@@ -164,7 +164,7 @@ app.post('/api/enquiry', async (req, res) => {
           method: 'POST',
           headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            from: 'Dream & Drift <notifications@driftanddream.co.za>',
+            from: 'Dream & Drift <notifications@dreamanddriftbnb.co.za>',
             to: ['Edithmakwena056@gmail.com'],
             subject: `New Enquiry from ${name}`,
             html: `<h2>New Enquiry — Dream &amp; Drift</h2>
@@ -408,7 +408,7 @@ app.get('/api/calendar/export', async (req, res) => {
     for (const b of result.rows) {
       const ci = new Date(b.checkin).toISOString().split('T')[0].replace(/-/g,'');
       const co = new Date(b.checkout).toISOString().split('T')[0].replace(/-/g,'');
-      lines.push('BEGIN:VEVENT',`UID:booking-${b.id}@driftanddream.co.za`,
+      lines.push('BEGIN:VEVENT',`UID:booking-${b.id}@dreamanddriftbnb.co.za`,
         `DTSTART;VALUE=DATE:${ci}`,`DTEND;VALUE=DATE:${co}`,
         `SUMMARY:Booked - ${b.guest_name}`,'STATUS:CONFIRMED','END:VEVENT');
     }
