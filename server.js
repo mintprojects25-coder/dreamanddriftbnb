@@ -169,7 +169,7 @@ app.get('/api/availability', async (req, res) => {
 app.get('/api/bookings/public', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, checkin, checkout, status FROM bookings WHERE status != 'cancelled' ORDER BY checkin`
+      `SELECT id, checkin, checkout, status, room_type FROM bookings WHERE status != 'cancelled' ORDER BY checkin`
     );
     res.json(result.rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
