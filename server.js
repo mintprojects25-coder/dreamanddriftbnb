@@ -218,25 +218,38 @@ app.get('/api/bookings', auth, async (req, res) => {
 });
 
 app.post('/api/bookings', auth, async (req, res) => {
-  const { name, email, phone, checkin, checkout, guests, amount, status, source, notes } = req.body;
+  const { name, email, phone, idno, checkin, checkout, guests, amount,
+          status, source, notes, room_type, payment } = req.body;
   if (!name || !email || !checkin || !checkout) return res.status(400).json({ error: 'Missing required fields' });
   try {
     const result = await pool.query(
-      `INSERT INTO bookings (guest_name,guest_email,guest_phone,checkin,checkout,guests,amount,status,source,notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-      [name, email, phone||'', checkin, checkout, guests||2, amount||0, status||'pending', source||'Direct', notes||'']
+      `INSERT INTO bookings
+         (guest_name,guest_email,guest_phone,checkin,checkout,guests,amount,status,source,notes,room_type,payment,idno)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+      [name, email, phone||'', checkin, checkout, guests||2, amount||0,
+       status||'pending', source||'Direct', notes||'',
+       room_type||null, payment||null, idno||null]
     );
     res.json({ success: true, booking: result.rows[0] });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/bookings/:id', auth, async (req, res) => {
-  const { name, email, phone, checkin, checkout, guests, amount, status, source, notes } = req.body;
+  const { name, email, phone, idno, checkin, checkout, guests, amount,
+          status, source, notes, room_type, payment } = req.body;
   try {
     await pool.query(
-      `UPDATE bookings SET guest_name=$1,guest_email=$2,guest_phone=$3,checkin=$4,checkout=$5,
-       guests=$6,amount=$7,status=$8,source=$9,notes=$10,updated_at=NOW() WHERE id=$11`,
-      [name, email, phone||'', checkin, checkout, guests||2, amount||0, status||'pending', source||'Direct', notes||'', req.params.id]
+      `UPDATE bookings SET
+         guest_name=$1, guest_email=$2, guest_phone=$3,
+         checkin=$4, checkout=$5, guests=$6, amount=$7,
+         status=$8, source=$9, notes=$10,
+         room_type=$11, payment=$12, idno=$13,
+         updated_at=NOW()
+       WHERE id=$14`,
+      [name, email, phone||'', checkin, checkout, guests||2, amount||0,
+       status||'pending', source||'Direct', notes||'',
+       room_type||null, payment||null, idno||null,
+       req.params.id]
     );
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
