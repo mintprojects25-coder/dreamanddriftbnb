@@ -445,12 +445,9 @@ app.post('/api/ical/import', auth, async (req, res) => {
         const from = dtstart.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3');
         const to   = dtend.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3');
         await pool.query(
-          `INSERT INTO blocked_dates (from_date, to_date, reason) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+          `INSERT INTO blocked_dates (date_from, date_to, reason) VALUES ($1, $2, $3)`,
           [from, to, platform + ' sync']
-        ).catch(() => pool.query(
-          `INSERT INTO blocked_dates (from_date, to_date, reason) VALUES ($1, $2, $3)`,
-          [from, to, platform + ' sync']
-        ));
+        ).catch(() => {});
         events.push({ from, to });
       }
     }
@@ -480,10 +477,20 @@ app.get('/api/events', auth, (req, res) => {
   req.on('close', () => { clearInterval(heartbeat); sseClients.delete(res); });
 });
 
+// ── Graceful error handling — prevent process from crashing ───────────────
+process.on('uncaughtException',  (err) => console.error('Uncaught exception:',  err.message));
+process.on('unhandledRejection', (err) => console.error('Unhandled rejection:', err?.message || err));
+
 // ── Start Server ───────────────────────────────────────────────────────────
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`✅ Dream & Drift API running on port ${PORT}`);
   console.log(`   DB: ${process.env.DATABASE_URL ? 'configured' : '⚠️  DATABASE_URL not set'}`);
+});
+
+// Keep process alive on Railway — handle SIGTERM cleanly
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received — shutting down gracefully');
+  server.close(() => process.exit(0));
 });
 
 module.exports = app;
